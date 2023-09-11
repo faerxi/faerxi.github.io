@@ -12,7 +12,11 @@ UE 5.1 新增了一个 **物理控制组件（Physics Control Component，以下
 
 ## 基本概念
 
-物理控制组件的核心是调节 Mesh 运动目标和特征的*控制*和调和物理动画的*身体修饰*。其中控制分为控制数据、控制目标和控制设置，分别调整了弹簧参数、物理控制的结束约束和其它设置。
+物理控制组件的核心是调节 Mesh 运动目标和特征的*控制*和调和物理动画的*身体修饰*。其中控制分为控制数据、控制目标和控制设置，分别调整了弹簧参数、物理控制的结束约束和其它设置。在详细介绍控制之前，让我们首先了解 PCC 中存储的一些参数：
+
+* 子组件和骨骼：控制的主体。PCC 会控制这个组件（若是 Skeletal Mesh 则会控制指定的骨骼）。
+* 父组件和骨骼：控制的目标。PCC 会将子组件“拉”到这里。若为空则使用世界空间。
+* 控制数据、控制目标、控制乘数和控制设定：这些会在下面的小节中介绍。
 
 ### 控制数据
 
@@ -126,6 +130,8 @@ $$
 
 UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我们会直接称为 motor）。这是一个使用弹簧模型的物理系统，它会持续向物体施加大小为 $F = kx + \lambda\dot{x}$ 的力（其中 $x$ 是和目标点的距离，$\dot{x}$ 是物体当前的速度；$k$ 和 $\lambda$ 则是力度和阻尼参数），或大小为 $\tau = \kappa\theta + \mu\dot{\theta}$ 的力矩（其中 $\theta$ 是和目标角度的偏移，$\dot{\theta}$ 是物体当前的角速度；$\kappa$ 和 $\mu$ 则是力度和阻尼参数），最终的效果便是将物体拉到平衡点，并和目标方向对齐。
 
+> 需要添加：PD 控制器（Proportional-Derivative Controller）
+
 在 PCC 的控制数据中，强度对应的便是一个和 $k$ 成正比的值，而阻尼比对应的是一个和 $\lambda$ 与强度同时相关的值。最大力会确保 $F$ 不会超过某个值，额外阻尼则是一个不清楚原理的参数（个人觉得可以作为 $k$ 的修正项出现，但在 PCC 的注释中它似乎应该和 $\lambda$ 相关）。转动的情况同理。
 
 目标位置和目标方向可以在 PCC 的控制目标中设置，其中包括：
@@ -133,8 +139,33 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
 * 位置：设置物体平动的平衡点。
 * 速度：设置物体在经过平衡点时的速度。
 * 方向：设置物体转动的平衡点。
-* 角速度：设置物体在经过转动平衡点时的速度。
-* 
+* 角速度：设置物体在经过转动平衡点时的速度。PCC 中采用的是转/秒而非标准的弧度/秒。
+* 是否将控制点和目标对齐：**控制点（Control Point）** 的概念源于物体并非大小为零的质点，因此可以将力施加在物体原点以外的地方，这个（组件空间的）偏移就是控制点。如果这里设置为是，则会让目标与受力物体的原点对齐（这实际上也同时限制了物体达到目标点时的 transform）；否则只会将物体的控制点和目标对齐。
+
+
+
+### 其它控制设置
+
+**控制乘数（Control Multiplier）** 是用来为控制数据设置比例的工具，其包含：
+
+* 平动强度在三方向上各自有一个乘数。
+* 平动阻尼比在三方向上各自有一个乘数。
+* 平动额外阻尼在三方向上各自有一个乘数。
+* 最大力在三方向上各自有一个乘数。
+* 转动强度只有一个乘数。
+* 转动阻尼比只有一个乘数。
+* 转动额外阻尼只有一个乘数。
+* 最大力矩只有一个乘数。
+
+这里转动相关的乘数都只有一个，具体原因需要分析源码才能知晓。
+
+**控制设定（Control Setting）** 是其它的一些参数，包含：
+
+* 控制点（`ControlPoint`）：即在此前介绍过的，力会被施加在这个点上。
+* 是否使用动画（`bUseSkeletalAnimation`）：若是，则会将力施加在骨骼动画上。
+* 骨骼动画速度乘数（`SkeletalAnimationVelocityMultiplier`）：骨骼动画的速度使用比例。
+* 是否开启碰撞检测（`bEnableCollision`）：若不开启则忽略物体和目标组件的碰撞。
+* 是否开启自动关闭（`bAutoDisable`）：若开启则每个 tick 都会首先关闭物理控制。
 
 
 
@@ -144,23 +175,7 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
 
 ### 创建物理控制
 
-1. `CreateControl` 创建一个物理控制，其中包含了所有和控制相关的参数。每个物理控制都拥有一个名字，因此这里会默认给它一个独一无二的名字并作为返回值。内部调用了 `CreateNamedControl`。
-
-   ```upp
-   FName CreateControl(
-       UMeshComponent* ParentMeshComponent,
-       FName ParentBoneName,
-       UMeshComponent* ChildMeshComponent,
-       const FName ChildBoneName,
-       const FPhysicsControlData ControlData,
-       const FPhysicsControlTarget ControlTarget,
-       const FPhysicsControlSettings ContorlSettings,
-       FName Set,
-       const bool bEnabled = true
-   );
-   ```
-
-2. `CreateNamedControl` 创建一个自定义名称的物理控制。如果名称有重复则不创建并返回 `false`。
+1. `CreateNamedControl` 创建一个自定义名称的物理控制。我们后续可以通过这个名字来更新这个物理控制的参数。如果名称有重复则不创建并返回 `false`。
 
    ```upp
    bool CreateNamedControl(
@@ -177,9 +192,11 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
    );
    ```
 
-   首先要求子组件不为空。对每个组件，如果其是一个 Skeletal Mesh，则将其缓存起来（调用 `FPhysicsControlComponentImpl::AddSkeletalMeshReferenceForCaching`）。随后，将参数中物理控制相关的项拿来初始化一个 `FPhysicsControlRecord` 对象，其用于存储物理控制的运行状态（包括父子组件和骨骼、控制数据、控制目标、控制设定）。
+   子组件不能为空。对每个组件，如果其是一个 Skeletal Mesh，则将其缓存起来（调用 `FPhysicsControlComponentImpl::AddSkeletalMeshReferenceForCaching`）。随后，将参数中物理控制相关的项拿来初始化一个 `FPhysicsControlRecord` 对象，其用于存储物理控制的运行状态（包括父子组件和骨骼、控制数据、控制目标、控制设定）。参数中的 `Set` 用来将这个控制纳入特定分组，之后我们可以为一个具名的控制组中所有物理控制一起设定参数（无论如何，每个物理控制都会在 `"All"` 组中）。`bEnabled` 会让物理控制立刻启用。
 
-3. `CreateControlsFromSkeletalMeshBelow` 为某个骨骼（可选择是否包含）的所有子骨骼创建物理控制，并返回所有创建的物理控制名称。注意这里一律使用父空间。要求物理资产非空。内部调用了 `CreateControl`。不对 `ControlTarget` 进行初始化。
+   另有 `CreateControl` 和这个函数类似，不过它不需要输入指定的控制名，而是会自动生成一个，并返回这个名字。
+
+2. `CreateControlsFromSkeletalMeshBelow` 为某个骨骼（可选择是否包含）的所有子骨骼创建物理控制，并返回所有创建的物理控制名称。注意这里一律使用父空间。要求物理资产非空。内部调用了 `CreateControl`。不会对 `ControlTarget` 进行初始化，因此需要后面设置目标。
 
    ```upp
    TArray<FName> CreateControlsFromSkeletalMeshBelow(
@@ -190,11 +207,13 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const FPhysicsControlData ControlData,
        const FPhysicsControlSettings ControlSettings,
        const FName Set,
-       const bool bEnabled
+       const bool bEnabled = true
    );
    ```
 
-4. `CreateControlsFromSkeletalMeshAndConstraintProfileBelow` 和 `CreateControlsFromSkeletalMeshBelow` 类似，但从物理资产的约束预设中提取控制数据来初始化物理控制。内部调用了 `CreateControl`。
+   注意到这里并没有指定控制目标，毕竟同时控制多个组件时不太可能设置同一个目标。`ControlType` 用于设置物理控制是否发生在父空间还是世界空间。参数 `SkeletalMeshComponent` 既是子组件又是父组件（当 `ControlType` 是父空间时），否则相当于仅指定了子组件；`BoneName` 是启用控制的最祖先骨骼；`bIncludeSelf` 决定 `BoneName` 是否也被控制。
+
+3. `CreateControlsFromSkeletalMeshAndConstraintProfileBelow` 和 `CreateControlsFromSkeletalMeshBelow` 类似，但从物理资产的约束预设中提取控制数据来初始化物理控制。
 
    ```upp
    TArray<FName> CreateControlsFromSkeletalMeshAndConstraintProfileBelow(
@@ -203,11 +222,16 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const bool bIncludeSelf,
        const FName ConstraintProfile,
        const FName Set,
-       const bool bEnabled
+       const bool bEnabled = true
    );
    ```
 
-5. `CreateControlsFromSkeletalMesh` 为指定的一个 Skeletal Mesh 中多个骨骼设置物理控制。要求物理资产非空。内部调用了 `CreateControl`。不对 `ControlTarget` 进行初始化。
+   和 `CreateControlsFromSkeletalMeshBelow` 对比可以看到，这个函数不需要给定控制数据和控制设定，这是因为：
+
+   * 控制数据会直接用物理资产的约束预设，通过 `ConstraintProfile` 指定。会从子骨骼和父骨骼的关节约束中读取强度和阻尼等信息。
+   * 控制设定可以后续再设置；注意这个函数中会默认将骨骼动画的速度乘数设为 0，因为关节约束中并不会将动画速度作为目标。
+
+4. `CreateControlsFromSkeletalMesh` 为指定的一个 Skeletal Mesh 中多个骨骼设置物理控制。要求物理资产非空。
 
    ```upp
    TArray<FName> CreateControlsFromSkeletalMesh(
@@ -217,11 +241,13 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const FPhysicsControlData ControlData,
        const FPhysicsControlSettings ControlSettings,
        const FName Set,
-       const bool bEnabled
+       const bool bEnabled = true
    );
    ```
 
-6. `CreateControlsFromSkeletalMeshAndConstraintProfile` 和 `CreateControlsFromSkeletalMesh` 类似，但从物理资产的约束预设中提取控制数据来初始化物理控制。内部调用了 `CreateControl`。
+   本质上是比 `CreateControlsFromSkeletalMeshBelow` 用处更加宽泛的创建方式。
+
+5. `CreateControlsFromSkeletalMeshAndConstraintProfile` 和 `CreateControlsFromSkeletalMesh` 类似，但从物理资产的约束预设中提取控制数据来初始化物理控制。
 
    ```upp
    TArray<FName> CreateControlsFromSkeletalMeshAndConstraintProfile(
@@ -229,11 +255,13 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const TArray<FName>& BoneNames,
        const FName ConstraintProfile,
        const FName Set,
-       const bool bEnabled
+       const bool bEnabled = true
    );
    ```
 
-7. `CreateControlsFromLimbBones` 为一段肢体设置物理控制。肢体是以映射表的形式传入的，函数中会为其中每一个骨骼设置相同的物理控制。
+   与 `CreateControlsFromSkeletalMesh` 的关系类似于 `CreateContorlsFromSkeletalMeshAndConstraintProfileBelow` 之于 `CreateControlsFromSkeletalMeshBelow`。
+
+6. `CreateControlsFromLimbBones` 为一段肢体设置物理控制。肢体是以映射表的形式传入的，函数中会为其中每一个骨骼设置相同的物理控制。
 
    ```upp
    TMap<FName, FPhysicsControlNames> CreateControlsFromLimbBones(
@@ -242,22 +270,24 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const EPhysicsControlType ControlType,
        const FPhysicsControlData ControlData,
        const FPhysicsControlSettings ControlSettings,
-       const bool bEnabled.
+       const bool bEnabled = true
    );
    ```
 
-8. `CreateControlsFromLimbBonesAndConstraintProfile` 和 `CreateControlsFromLimbBones` 类似，但从物理资产的约束预设中提取控制数据来初始化物理控制。内部调用了 `CreateConrol`。
+   这里出现的 `AllControls` 实际上是 `TArray<FName>` 的封装，其中包含了每个控制的名字。`LimbBones` 将这些名字映射到 `FPhysicsControlLimbBones` 上，其中存储了肢体所在的 Skeletal Mesh 和其中的所有骨骼名字。
+
+7. `CreateControlsFromLimbBonesAndConstraintProfile` 从物理资产的约束预设中提取控制数据来初始化控制数据。和 `CreateControlsFromLimbBones` 的关系和此前遇到的两组函数类似。
 
    ```upp
    TMap<FName, FPhysicsControlName> CreateControlsFromLimbBonesAndConstraintProfile(
        FPhysicsControlNames& AllControls,
        const TMap<FName, FPhysicsControlLimbBones>& LimbBones,
        const FName ConstraintProfile,
-       const bool bEnabled
+       const bool bEnabled = true
    );
    ```
 
-### 设置控制数据
+### 设置物理控制
 
 1. `SetControlData` 为物理控制设置数据。若给定的控制名字不存在则返回 `false`。
 
@@ -265,119 +295,63 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
    bool SetControlData(
        const FName Name,
        const FPhysicsControlData ControlData,
-       const bool bEnableControl
+       const bool bEnableControl = true
    );
    ```
 
-2. `SetControlDatas` 同时设置多个物理控制。内部调用了 `SetControlData`。
+   `bEnableControl` 用来顺便开启物理控制。这个函数有两个变体，`SetControlDatas` 和 `SetControlDatasInSet`，里面分别会接受一个名字数组和组名，用来设置给定的物理控制。
 
-   ```upp
-   void SetControlDatas(
-       const TArray<FName>& Names,
-       const FPhysicsControlData ControlData,
-       const bool bEnableControl
-   );
-   ```
-
-3. `SetControlDatasInSet` 设置特定组的物理控制，内部调用了 `SetControlDatas`。
-
-   ```upp
-   void SetControlDatasInSet(
-       const FName SetName,
-       const FPhysicsControlData ControlData,
-       const bool bEnableControl
-   );
-   ```
-
-4. `SetControlMultiplier` 设置物理控制数据的乘数。若给定的控制名字不存在则返回 `false`。
+2. `SetControlMultiplier` 设置物理控制数据的乘数。若给定的控制名字不存在则返回 `false`。
 
    ```upp
    bool SetControlMultiplier(
        const FName Name,
        const FPhysicsControlMultiplier ControlMultiplier,
-       const bool bEnableControl
+       const bool bEnableControl = true
    );
    ```
 
-5. `SetControlMultipliers` 设置多个物理控制数据的乘数。内部调用了 `SetControlMultiplier`。
+   类似地，也有 `SetControlMultipliers` 和 `SetControlMultipliersInSet` 两个变种。
 
-   ```upp
-   void SetControlMultipliers(
-       const TArray<FName>& Names,
-       const FPhysicsControlMultiplier ControlMultiplier,
-       const bool bEnableControl
-   );
-   ```
-
-6. `SetControlMultipliersInSet` 设置特定组的物理控制，内部调用了 `SetControlMultipliersInSet`。
-
-   ```upp
-   void SetControlMultipliersInSet(
-       const FName SetName,
-       const FPhysicsControlMultiplier ControlMultiplier,
-       const bool bEnableControl
-   );
-   ```
-
-7. `SetControlLinearData` 仅设置物理控制中和平动相关的数据。若给定的控制名字不存在则返回 `false`。
+3. `SetControlLinearData` 仅设置物理控制中和平动相关的数据。若给定的控制名字不存在则返回 `false`。
 
    ```upp
    bool SetControlLinearData(
        const FName Name,
-       const float Strength,
-       const float DampingRatio,
-       const float ExtraDamping,
-       const float MaxForce,
-       const bool bEnableControl
+       const float Strength = 1.0f,
+       const float DampingRatio = 1.0f,
+       const float ExtraDamping = 0.0f,
+       const float MaxForce = 0.0f,
+       const bool bEnableControl = true
    );
    ```
 
-8. `SetControlAngularData` 仅设置物理控制中和转动相关的数据。若给定的控制名字不存在则返回 `false`。
+4. `SetControlAngularData` 仅设置物理控制中和转动相关的数据。若给定的控制名字不存在则返回 `false`。
 
    ```upp
    bool SetControlAngularData(
        const FName Name,
-       const float Strength,
-       const float DampingRatio,
-       const float ExtraDamping,
-       const float MaxTorque,
-       const bool bEnableControl
+       const float Strength = 1.0f,
+       const float DampingRatio = 1.0f,
+       const float ExtraDamping = 0.0f,
+       const float MaxTorque = 0.0f,
+       const bool bEnableControl = true
    );
    ```
 
-### 设置控制目标
-
-1. `SetControlTarget` 设置物理控制的目标。
+5. `SetControlTarget` 设置物理控制的目标。
 
    ```upp
    bool SetControlTarget(
        const FName,
        const FPhysicsControlTarget ControlTarget,
-       const bool bEnableControl
+       const bool bEnableControl = true
    );
    ```
 
-2. `SetControlTarget` 设置多个物理控制的目标。内部调用了 `SetControlTarget`。
+   有 `SetControlTargets` 和 `SetControlTargetsInSet` 两个变种。
 
-   ``` upp
-   void SetControlTargets(
-       const TArray<FName>& Names,
-       const FPhysicsControlTarget ControlTarget,
-       const bool bEnableControl
-   );
-   ```
-
-3. `SetControlTargetsInSet` 设置特定组的物理控制。内部调用了 `SetControlTargets`。
-
-   ```upp
-   bool SetControlTargetsInSet(
-       const FName SetName,
-       const FPhysicsControlTarget ControlTarget,
-       const bool bEnableControl
-   );
-   ```
-
-4. `SetControlTargetPositionAndOrientation` 仅设置物理控制中位置和方向的目标。内部调用了 `SetControlTargetPosition` 和 `SetControlTargetOrientation`。参数中的 `VelocityDeltaTime` 若不为零，则会用当前目标位置计算目标速度（目标位置相对当前位置的偏移与 `VelocityDeltaTime` 的比值）。`bApplyControlPointToTarget` 则用于设置控制点（弹簧作用点）和目标位置的关系：若设置为 `true`，函数会试图将 Mesh 和目标位置（被假定为一个对象）的 Transform 对齐，否则仅仅将控制点和目标位置对齐。
+6. `SetControlTargetPositionAndOrientation` 仅设置物理控制中位置和方向的目标。
 
    ```upp
    bool SetControlTargetPositionAndOrientation(
@@ -385,36 +359,31 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const FVector Position,
        const FRotator Orientation,
        const float VelocityDeltaTime,
-       const bool bEnableControl,
-       const bool bApplyControlPointToTarget
+       const bool bEnableControl = true,
+       const bool bApplyControlPointToTarget = false
    );
    ```
 
-5. `SetControlTargetPosition` 仅设置物理控制中位置的目标。参数中的 `VelocityDeltaTime` 解释见上一条。
+   参数中的 `VelocityDeltaTime` 若不为零，则会用当前目标位置计算目标速度（目标位置相对当前位置的偏移与 `VelocityDeltaTime` 的比值）。`bApplyControlPointToTarget` 用于设置物理控制是否将控制点和目标对齐（回忆这也是物理控制目标的一个参数）。这实际上就是将控制目标中的速度项剥除后将其余项展开为函数参数。
 
-   ```
-   bool SetControlTargetPosition(
-       const FName Name,
-       const FVector Position,
-       const float VelocityDeltaTime,
-       const bool bEnableControl,
-       const bool bApplyControlPointToTarget
-   );
-   ```
+   有 `SetControlTargetPositionsAndOrientations` 和 `SetControlTargetPositionsAndOrientationsInSet` 两个变种。此外也有 `SetControlTargetPosition` 和 `SetControlTargetOrientation` 以及带数组或组名参数的简化版及其变种。
 
-6. `SetControlTargetOrientation` 仅控制物理控制中方向的目标。参数中的 `AngularVelocityDeltaTime` 和上一条中的 `VelocityDeltaTime` 原理类似。
+7. `SetControlTargetPositionsAndOrientationsFromArray` 为多个物理控制分别设置目标位置和方向。若给定的控制数量和位置数量（或方向数量）不相同则返回 `false`。
 
    ```upp
-   bool SetControlTargetOrientation(
-       const FName Name,
-       const FRotator Orientation,
-       const float AngularVelocityDeltaTime,
-       const bool bEnableControl,
-       const bool bApplyControlPointToTarget
+   bool SetControlTargetPositionsFromArray(
+       const TArray<FName>& Names,
+       const TArray<FVector>& Positions,
+       const TArray<FRotator>& Orientations,
+       const float VelocityDeltaTime,
+       const bool bEnableControl = true,
+       const bool bApplyControlPointToTarget = false
    );
    ```
 
-7. `SetControlTargetPoses` 仅控制物理控制中位置和方向的目标；和 `SetControlTargetPositionAndOrientation` 的区别在于，这个函数会将子组件的 transform 向父组件对齐。
+   有 `SetControlTargetPositionsFromArray` 和 `SetControlTargetOrientationsFromArray` 两个简化的变种。
+
+8. `SetControlTargetPoses` 仅控制物理控制中位置和方向的目标；和 `SetControlTargetPositionAndOrientation` 的区别在于，这个函数会将子组件的 transform 向父组件对齐，且会自动将 `bApplyControlPointToTarget` 设置为 `true`。
 
    ```upp 
    bool SetControlTargetPoses(
@@ -424,40 +393,66 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
        const FVector ChildPosition,
        const FRotator ChildOrientation,
        const float VelocityDeltaTime,
-       const bool bEnableControl
+       const bool bEnableControl = true
    );
    ```
 
-### 设置控制设置
-
-1. `SetControlUseSkeletalAnimation` 让物理控制以骨骼动画为目标。`SkeletalAnimationVelocityMultiplier` 决定了动画速度在目标速度中的占比。
+9. `SetControlUseSkeletalAnimation` 设置是否和动画混合。
 
    ```upp
    bool SetControlUseSkeletalAnimation(
        const FName Name,
        const bool bUseSkeletalAnimation = true,
-       const float SkeletalAnimationVelocityMultiplier = 1
+       const float SkeletalAnimationVelocityMultiplier = 1.0f
    );
    ```
 
-2. `SetControlsUseSkeletalAnimation` 让多个物理控制以骨骼动画为目标。
+   有 `SetControlsUseSkeletalAnimation` 和 `SetControlsInSetUseSkeletalAnimation` 两个变种。
 
-3. `SetControlsInSetUseSkeletalAnimation` 让特定组中的物理控制以骨骼动画为目标。
-
-4. `SetControlAutoDisable` 让物理控制在每个 tick 后自动关闭。
+10. `SetControlAutoDisable` 设置是否每个 tick 自动关闭物理控制。
 
    ```upp
-   bool SetCOntrolAutoDisable(
+   bool SetControlAutoDisable(
        const FName Name,
        const bool bAutoDisable
    );
    ```
 
-5. `SetControlsAutoDisable` 让多个物理控制在每个 tick 后自动关闭。
+   有 `SetControlsAutoDisable` 和 `SetControlsInSetAutoDisable` 两个变种。
 
-6. `SetControlsInSetAutoDisable`：让特定组中的物理控制在每个 tick 后自动关闭。
+11. `SetControlDisableCollision` 设置是否关闭子组件和父组件的碰撞。
 
-7. `SetControlDisableCollision`：让物理控制中 Mesh 和它相连的组件间不发生碰撞。
+    ```upp
+    bool SetControlDisableCollision(
+        const FName Name,
+        const bool bDisableCollision
+    );
+    ```
+
+    有 `SetControlsDisableCollision` 和 `SetControlsInSetDisableCollision` 两个变种。
+
+12. `SetControlEnabled` 开启或关闭物理控制。
+
+    ```upp
+    bool SetControlEnabled(
+        const FName Name, 
+        const bool bEnable = true
+    );
+    ```
+
+    有 `SetControlsEnabled` 和 `SetControlsInSetEnabled` 两个变种。
+
+有趣的是一些函数并没有传入数组和组名的变种。
+
+
+
+### 设置控制设置
+
+1. `SetControlsAutoDisable` 让多个物理控制在每个 tick 后自动关闭。
+
+2. `SetControlsInSetAutoDisable`：让特定组中的物理控制在每个 tick 后自动关闭。
+
+3. `SetControlDisableCollision`：让物理控制中 Mesh 和它相连的组件间不发生碰撞。
 
    ```upp
    bool SetControlDisableCollision(
@@ -466,9 +461,9 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
    );
    ```
 
-8. `SetControlsDisableCollision`：让多个物理控制中 Mesh 和它相连的组件间不发生碰撞。
+4. `SetControlsDisableCollision`：让多个物理控制中 Mesh 和它相连的组件间不发生碰撞。
 
-9. `SetControlsInSetDisableCollision`：让特定组中的物理组件中 Mesh 和它相连的组件间不发生碰撞。
+5. `SetControlsInSetDisableCollision`：让特定组中的物理组件中 Mesh 和它相连的组件间不发生碰撞。
 
 ### 创建身体修饰
 
@@ -590,7 +585,7 @@ UE 中的物理作用有时会通过 **动力机（Motor）** 完成（下面我
     );
     ```
 
-12. `SetBodyModifiersUseSkeletalAnimation` 设置多个身体修饰是否使用骨骼动画。
+12. 
 
 13. `SetBodyModifiersInSetUseSkeletalAnimation` 设置特定组的身体修饰是否使用骨骼动画。
 
