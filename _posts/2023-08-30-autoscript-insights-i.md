@@ -3,11 +3,11 @@ layout: post
 title: AutoScript 构思（一）实体和变量
 category: [coding]
 tag: [AutoScript, 编程语言]
-author: programmer
+author: programming
 publish: false
 ---
 
-在 **AutoScript** 中，**实体（Entity）** 是一等公民。所有可以绑定为变量的都被称为实体，其包括我们熟悉的*对象（Object）*、*函数（Function）*、*类型（Type）*。这些本应不相容的概念在 AutoScript 是所有实体共有的特征。本节让我们探索实体的行为特征。
+在 **AutoScript** 中，**实体（Entity）** 是一等公民。所有可以绑定为变量的都被称为实体，其包括我们熟悉的*对象（Object）*、*函数（Function）*、*类型（Type）*、*模版（Template）*等。这些本应不相容的概念在 AutoScript 都是 AutoScript 的实体。本节让我们探索实体的行为特征。
 
 ## 变量
 

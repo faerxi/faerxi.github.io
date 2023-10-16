@@ -2,14 +2,7 @@
 
 source "https://rubygems.org"
 
-gemspec
-
-group :jekyll_plugins do
-  gem 'jekyll-feed', '~> 0.12'
-  gem 'jekyll-remote-theme'
-  gem 'jekyll-sitemap'
-  gem 'jekyll-seo-tag'
-end
+gem "jekyll-theme-chirpy", "~> 6.2", ">= 6.2.2"
 
 group :test do
   gem "html-proofer", "~> 4.4"

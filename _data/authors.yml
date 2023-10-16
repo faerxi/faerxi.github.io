@@ -1,17 +1,6 @@
-## Template › https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/advanced-usage.md#setting-author-url
-# -------------------------------------
-# {author_id}:
-#   name: {full name}
-#   twitter: {twitter_of_author}
-#   url: {homepage_of_author}
-# -------------------------------------
-
-cotes:
-  name: Cotes Chung
-  twitter: cotes2020
-  url: https://github.com/cotes2020/
-
-sille_bille:
-  name: Dinesh Prasanth Moluguwan Krishnamoorthy
-  twitter: dinesh_MKD
-  url: https://github.com/SilleBille/
+programming:
+  name: 码工法尔希
+learning:
+  name: 法尔希学习中
+life:
+  name: 普通的法尔希
